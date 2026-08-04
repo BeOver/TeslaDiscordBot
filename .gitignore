@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+tesla_cache.json
+battery_cache.json
+*.log
+.pytest_cache/
