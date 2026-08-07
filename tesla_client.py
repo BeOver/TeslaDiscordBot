@@ -280,9 +280,11 @@ class TeslaPyClient(TeslaClientBase):
         speed_raw = drive.get("speed")
         speed = float(speed_raw) if speed_raw is not None else None
 
-        # Bei online fehlen drive/charge manchmal in der Summary → gezielt nachladen
+        # Bei online fehlen oft Details → vehicle_data nachladen
         needs_details = state == "online" and (
-            shift_state is None or "charge_state" not in summary
+            shift_state is None
+            or "charge_state" not in summary
+            or "vehicle_state" not in summary
         )
 
         if needs_details:
@@ -301,11 +303,46 @@ class TeslaPyClient(TeslaClientBase):
             vehicle=vehicle,
         )
 
+        # Zusätzliche Felder extrahieren
+        charge = self._extract_nested(summary, "charge_state")
+        vehicle_state = self._extract_nested(summary, "vehicle_state")
+        climate = self._extract_nested(summary, "climate_state")
+
+        charging_state = charge.get("charging_state")
+        sentry_mode = bool(vehicle_state.get("sentry_mode", False))
+
+        battery_range = charge.get("battery_range")
+        est_battery_range = charge.get("est_battery_range")
+        charge_limit_soc = charge.get("charge_limit_soc")
+        charger_power = charge.get("charger_power")
+        time_to_full = charge.get("time_to_full_charge")
+
+        locked = vehicle_state.get("locked")
+        odometer = vehicle_state.get("odometer")
+        is_user_present = vehicle_state.get("is_user_present")
+
+        inside_temp = climate.get("inside_temp")
+        outside_temp = climate.get("outside_temp")
+        is_climate_on = climate.get("is_climate_on")
+
         return determine_status(
             state=state,
             battery_level=battery,
             shift_state=shift_state,
             speed=speed,
+            charging_state=charging_state,
+            sentry_mode=sentry_mode,
+            locked=locked,
+            battery_range_miles=float(battery_range) if battery_range is not None else None,
+            est_battery_range_miles=float(est_battery_range) if est_battery_range is not None else None,
+            charge_limit_soc=int(charge_limit_soc) if charge_limit_soc is not None else None,
+            charger_power=float(charger_power) if charger_power is not None else None,
+            time_to_full_charge=float(time_to_full) if time_to_full is not None else None,
+            inside_temp=float(inside_temp) if inside_temp is not None else None,
+            outside_temp=float(outside_temp) if outside_temp is not None else None,
+            is_climate_on=bool(is_climate_on) if is_climate_on is not None else None,
+            odometer_miles=float(odometer) if odometer is not None else None,
+            is_user_present=bool(is_user_present) if is_user_present is not None else None,
         )
 
 
