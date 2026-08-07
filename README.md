@@ -1,22 +1,27 @@
 # Tesla Discord Status Bot
 
-Discord-Bot, der den Namen eines Channels automatisch an den aktuellen Tesla-Status anpasst:
+Discord-Bot, der den Namen eines Channels automatisch an den aktuellen Tesla-Status anpasst und beendete Fahrten als Fahrtenbuch-Eintrag postet.
 
-| Anzeige | Bedeutung |
-|---------|-----------|
-| ⚫ 67% | Offline oder Sleep |
-| 🟢 82% | Online, geparkt |
-| 🔵 74% | Unterwegs (Driving) |
+| Anzeige     | Bedeutung                  |
+|-------------|----------------------------|
+| ⚫67%       | Offline oder Sleep         |
+| 🛠️72%       | Service / Werkstatt        |
+| 🟢82%       | Online, geparkt            |
+| 🔵74%       | Unterwegs (Driving)        |
+| 🟠68%       | Lädt                       |
+| 🔴71%       | Wächtermodus (Sentry)      |
 
 Der Bot nutzt **TeslaPy** (Tesla Owner API) und aktualisiert den Channel-Namen nur bei echten Änderungen – mit Cooldown, um Discords Rate-Limits (~2 Renames / 10 Min.) einzuhalten.
+
+Zusätzlich erkennt der Bot den Beginn und das Ende einer Fahrt und schreibt nach Fahrtende automatisch eine Zusammenfassung (Fahrtenbuch) in den Status-Channel.
 
 ---
 
 ## Voraussetzungen
 
-- Python 3.10+
-- Tesla-Account mit Fahrzeug
-- Discord-Bot mit **Manage Channels**-Berechtigung
+* Python 3.10+
+* Tesla-Account mit Fahrzeug
+* Discord-Bot mit **Manage Channels**- und **Send Messages**-Berechtigung
 
 ---
 
@@ -27,15 +32,15 @@ Der Bot nutzt **TeslaPy** (Tesla Owner API) und aktualisiert den Channel-Namen n
 3. Token kopieren → `DISCORD_TOKEN` in `.env`.
 4. Unter **Privileged Gateway Intents** reichen die Standard-Intents (Guilds).
 5. **OAuth2 → URL Generator**:
-   - Scopes: `bot`, `applications.commands`
-   - Bot Permissions: `Manage Channels`, `Send Messages`
+   * Scopes: `bot`, `applications.commands`
+   * Bot Permissions: `Manage Channels`, `Send Messages`
 6. Bot auf deinen Server einladen.
 
 ### Status-Channel vorbereiten
 
-- Erstelle einen Text- oder Voice-Channel für den Status (z. B. `#tesla-status`).
-- Rechtsklick → **Link kopieren** → die Channel-ID ist die lange Zahl in der URL.
-- Diese ID als `CHANNEL_ID` in `.env` eintragen.
+* Erstelle einen Text- oder Voice-Channel für den Status (z. B. `#tesla-status`).
+* Rechtsklick → **Link kopieren** → die Channel-ID ist die lange Zahl in der URL.
+* Diese ID als `CHANNEL_ID` in `.env` eintragen.
 
 ---
 
