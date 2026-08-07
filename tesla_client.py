@@ -311,6 +311,10 @@ class TeslaPyClient(TeslaClientBase):
         charging_state = charge.get("charging_state")
         sentry_mode = bool(vehicle_state.get("sentry_mode", False))
 
+        # Service-Felder
+        in_service = bool(summary.get("in_service", False) or vehicle.get("in_service", False))
+        service_mode = bool(vehicle_state.get("service_mode", False))
+
         battery_range = charge.get("battery_range")
         est_battery_range = charge.get("est_battery_range")
         charge_limit_soc = charge.get("charge_limit_soc")
@@ -332,6 +336,8 @@ class TeslaPyClient(TeslaClientBase):
             speed=speed,
             charging_state=charging_state,
             sentry_mode=sentry_mode,
+            in_service=in_service,
+            service_mode=service_mode,
             locked=locked,
             battery_range_miles=float(battery_range) if battery_range is not None else None,
             est_battery_range_miles=float(est_battery_range) if est_battery_range is not None else None,

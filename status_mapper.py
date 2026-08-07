@@ -11,6 +11,7 @@ class StatusColor(str, Enum):
     """Visueller Status für den Discord-Channel."""
 
     OFFLINE = "offline"      # ⚫ asleep / offline
+    SERVICE = "service"      # 🛠️ Service / Werkstatt
     ONLINE = "online"        # 🟢 online, geparkt
     DRIVING = "driving"      # 🔵 unterwegs
     CHARGING = "charging"    # 🟠 lädt
@@ -19,6 +20,7 @@ class StatusColor(str, Enum):
 
 EMOJI = {
     StatusColor.OFFLINE: "⚫",
+    StatusColor.SERVICE: "🛠️",
     StatusColor.ONLINE: "🟢",
     StatusColor.DRIVING: "🔵",
     StatusColor.CHARGING: "🟠",
@@ -40,6 +42,8 @@ class VehicleStatus:
     # Zusätzliche Felder
     charging_state: str | None = None
     sentry_mode: bool = False
+    in_service: bool = False
+    service_mode: bool = False
     locked: bool | None = None
     battery_range_miles: float | None = None
     est_battery_range_miles: float | None = None
@@ -88,23 +92,29 @@ def determine_status(
     speed: float | None = None,
     charging_state: str | None = None,
     sentry_mode: bool = False,
+    in_service: bool = False,
+    service_mode: bool = False,
     **extra: Any,
 ) -> VehicleStatus:
     """
     Bestimmt den Anzeige-Status aus Tesla-Zustandsdaten.
 
     Priorität:
-    1. asleep / offline          → ⚫
-    2. online + fahrend          → 🔵
-    3. online + lädt             → 🟠
-    4. online + Wächtermodus     → 🔴
-    5. online + geparkt          → 🟢
+    1. asleep / offline                → ⚫
+    2. in_service oder service_mode   → 🛠️
+    3. online + fahrend               → 🔵
+    4. online + lädt                  → 🟠
+    5. online + Wächtermodus          → 🔴
+    6. online + geparkt               → 🟢
     """
     normalized_state = (state or "offline").lower()
     charging = (charging_state or "").lower() == "charging"
+    is_service = in_service or service_mode
 
     if normalized_state in {"asleep", "offline"}:
         color = StatusColor.OFFLINE
+    elif is_service:
+        color = StatusColor.SERVICE
     elif normalized_state == "online":
         is_driving = (
             (shift_state in DRIVING_SHIFT_STATES)
@@ -119,7 +129,6 @@ def determine_status(
         else:
             color = StatusColor.ONLINE
     else:
-        # Unbekannte Zustände vorsichtig als offline behandeln
         color = StatusColor.OFFLINE
 
     return VehicleStatus(
@@ -130,6 +139,8 @@ def determine_status(
         speed=speed,
         charging_state=charging_state,
         sentry_mode=sentry_mode,
+        in_service=in_service,
+        service_mode=service_mode,
         **extra,
     )
 
@@ -138,6 +149,7 @@ def status_message(status: VehicleStatus) -> str:
     """Formatiert eine lesbare Status-Nachricht für /status."""
     state_labels = {
         StatusColor.OFFLINE: "Offline / Sleep",
+        StatusColor.SERVICE: "Service / Werkstatt",
         StatusColor.ONLINE: "Online (geparkt)",
         StatusColor.DRIVING: "Unterwegs",
         StatusColor.CHARGING: "Lädt",
@@ -164,6 +176,17 @@ def status_message(status: VehicleStatus) -> str:
         hours = int(status.time_to_full_charge)
         minutes = int((status.time_to_full_charge - hours) * 60)
         lines.append(f"Restladezeit: **{hours}h {minutes}m**")
+
+    # Service-Info
+    if status.in_service or status.service_mode:
+        service_parts = []
+        if status.in_service:
+            service_parts.append("in_service")
+        if status.service_mode:
+            service_parts.append("service_mode")
+        lines.append(f"Service: **an** (`{' + '.join(service_parts)}`)")
+    else:
+        lines.append("Service: **aus**")
 
     lines.append(f"Wächtermodus: **{'an' if status.sentry_mode else 'aus'}**")
 
