@@ -4,7 +4,7 @@ Tesla-API-Zugriff über TeslaPy (Owner API).
 Strategie für minimalen Aufweck-Aufwand:
 1. Zuerst nur Vehicle-Summary abrufen (weckt das Fahrzeug nicht).
 2. Bei asleep/offline: gecachten Akkustand verwenden.
-3. Nur bei online: optional drive_state/charge_state aus Summary oder vehicle_data.
+3. Nur bei online: optional drive_state/charge_state/vehicle_state aus Summary oder vehicle_data.
 
 Die Klasse ist so strukturiert, dass später ein Fleet-API-Backend
 (z. B. MyTeslaMate / Teslemetry) leicht eingehängt werden kann –

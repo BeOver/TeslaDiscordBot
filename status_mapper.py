@@ -8,6 +8,8 @@ from typing import Any
 
 
 class StatusColor(str, Enum):
+    """Visueller Status für den Discord-Channel."""
+
     OFFLINE = "offline"      # ⚫ asleep / offline
     ONLINE = "online"        # 🟢 online, geparkt
     DRIVING = "driving"      # 🔵 unterwegs
@@ -23,6 +25,7 @@ EMOJI = {
     StatusColor.SENTRY: "🔴",
 }
 
+# Schwellwert in mph (Tesla API liefert speed in mph)
 SPEED_THRESHOLD_MPH = 1.0
 DRIVING_SHIFT_STATES = frozenset({"D", "R", "N"})
 
@@ -34,7 +37,7 @@ class VehicleStatus:
     tesla_state: str
     shift_state: str | None
     speed: float | None
-    # Zusätzliche Felder für /status und erweiterte Logik
+    # Zusätzliche Felder
     charging_state: str | None = None
     sentry_mode: bool = False
     locked: bool | None = None
@@ -88,7 +91,7 @@ def determine_status(
     **extra: Any,
 ) -> VehicleStatus:
     """
-    Bestimmt den Anzeige-Status.
+    Bestimmt den Anzeige-Status aus Tesla-Zustandsdaten.
 
     Priorität:
     1. asleep / offline          → ⚫
@@ -116,6 +119,7 @@ def determine_status(
         else:
             color = StatusColor.ONLINE
     else:
+        # Unbekannte Zustände vorsichtig als offline behandeln
         color = StatusColor.OFFLINE
 
     return VehicleStatus(
@@ -131,7 +135,7 @@ def determine_status(
 
 
 def status_message(status: VehicleStatus) -> str:
-    """Formatiert eine ausführliche Status-Nachricht für /status."""
+    """Formatiert eine lesbare Status-Nachricht für /status."""
     state_labels = {
         StatusColor.OFFLINE: "Offline / Sleep",
         StatusColor.ONLINE: "Online (geparkt)",

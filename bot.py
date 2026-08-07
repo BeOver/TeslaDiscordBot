@@ -2,13 +2,15 @@
 Tesla Discord Status Bot
 
 Aktualisiert regelmäßig den Namen eines Discord-Channels basierend
-auf dem Tesla-Fahrzeugstatus (Offline / Online / Unterwegs + Akkustand).
+auf dem Tesla-Fahrzeugstatus (Offline / Online / Unterwegs / Lädt / Wächter + Akkustand)
+und schreibt beendete Fahrten als Fahrtenbuch-Eintrag in den Channel.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 
 import discord
 from discord import app_commands
@@ -19,6 +21,7 @@ from config import Config
 from logging_setup import setup_logging
 from status_mapper import VehicleStatus, status_message
 from tesla_client import TeslaDataError, TeslaPyClient
+from trip_tracker import TripTracker
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +44,10 @@ class TeslaDiscordBot(discord.Client):
         self.channel_manager = ChannelManager(
             channel_id=config.channel_id,
             cooldown_minutes=config.channel_edit_cooldown_minutes,
+        )
+        self.trip_tracker = TripTracker(
+            state_file=Path(__file__).resolve().parent / "trip_state.json",
+            enabled=True,
         )
         self._latest_status: VehicleStatus | None = None
 
@@ -112,7 +119,29 @@ class TeslaDiscordBot(discord.Client):
                 vehicle_status.battery_level,
                 vehicle_status.tesla_state,
             )
+
+            # Channel-Name aktualisieren
             await self.channel_manager.update_channel_name(self, vehicle_status)
+
+            # Fahrtenbuch: prüfen ob eine Fahrt gerade beendet wurde
+            embed = self.trip_tracker.process(vehicle_status)
+            if embed is not None:
+                channel = self.get_channel(self.config.channel_id)
+                if channel is None:
+                    try:
+                        channel = await self.fetch_channel(self.config.channel_id)
+                    except discord.HTTPException:
+                        channel = None
+
+                if isinstance(channel, discord.TextChannel):
+                    await channel.send(embed=embed)
+                    logger.info("Fahrtenbuch-Eintrag gesendet.")
+                else:
+                    logger.warning(
+                        "Fahrtenbuch-Nachricht konnte nicht gesendet werden "
+                        "(CHANNEL_ID ist kein Text-Channel oder keine Rechte)."
+                    )
+
         except TeslaDataError as exc:
             logger.error("Tesla-Fehler im Update-Zyklus: %s", exc)
         except Exception:
