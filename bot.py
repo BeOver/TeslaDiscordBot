@@ -40,6 +40,7 @@ class TeslaDiscordBot(discord.Client):
             battery_cache_file=config.battery_cache_file,
             vin=config.tesla_vin,
             refresh_token=config.tesla_refresh_token,
+            battery_cache_max_age_seconds=config.battery_cache_max_age_seconds,
         )
         self.channel_manager = ChannelManager(
             channel_id=config.channel_id,
@@ -48,6 +49,7 @@ class TeslaDiscordBot(discord.Client):
         self.trip_tracker = TripTracker(
             state_file=Path(__file__).resolve().parent / "trip_state.json",
             enabled=True,
+            min_distance_km=config.trip_min_distance_km,
         )
         self._latest_status: VehicleStatus | None = None
 
@@ -79,10 +81,15 @@ class TeslaDiscordBot(discord.Client):
         logger.info("Slash-Commands synchronisiert.")
 
         self.update_channel_task.change_interval(
-            minutes=self.config.update_interval_minutes
+            seconds=self.config.tesla_poll_interval_seconds
         )
         if not self.update_channel_task.is_running():
             self.update_channel_task.start()
+        logger.info(
+            "Tesla-Polling alle %.0fs (Channel-Cooldown: %.0f Min.).",
+            self.config.tesla_poll_interval_seconds,
+            self.config.channel_edit_cooldown_minutes,
+        )
 
     async def on_ready(self) -> None:
         logger.info("Eingeloggt als %s (ID: %s)", self.user, self.user.id)
@@ -114,10 +121,11 @@ class TeslaDiscordBot(discord.Client):
             vehicle_status = await self._fetch_tesla_status()
             self._latest_status = vehicle_status
             logger.info(
-                "Tesla-Status: %s | %s%% | state=%s",
+                "Tesla-Status: %s | %s%% | state=%s%s",
                 vehicle_status.emoji,
                 vehicle_status.battery_level,
                 vehicle_status.tesla_state,
+                " (Cache)" if vehicle_status.battery_from_cache else "",
             )
 
             # Channel-Name aktualisieren
@@ -147,7 +155,7 @@ class TeslaDiscordBot(discord.Client):
         except Exception:
             logger.exception("Unerwarteter Fehler im Update-Zyklus")
 
-    @tasks.loop(minutes=7)
+    @tasks.loop(seconds=90)
     async def update_channel_task(self) -> None:
         await self._run_update_cycle()
 

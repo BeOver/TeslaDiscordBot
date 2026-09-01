@@ -119,9 +119,9 @@ python bot.py
 
 Der Bot:
 
-- prüft alle `UPDATE_INTERVAL_MINUTES` (Standard: 7) den Tesla-Status,
-- benennt den Channel nur bei Änderung um,
-- wartet mindestens `CHANNEL_EDIT_COOLDOWN_MINUTES` (Standard: 6) zwischen echten Edits.
+- fragt den Tesla-Status alle `TESLA_POLL_INTERVAL_SECONDS` (Standard: **90 Sekunden**) ab,
+- benennt den Discord-Channel nur bei Änderung um (Cooldown bleibt bei 6 Min.),
+- erkennt Fahrten für das Fahrtenbuch und schätzt kurze Fahrten zwischen zwei Abfragen.
 
 ### Slash-Command
 
@@ -142,6 +142,7 @@ tesla-discord-status/
 ├── tesla_client.py     # TeslaPy-Anbindung + Fleet-API-Stub
 ├── status_mapper.py    # Status-Logik (Emoji, Akkustand)
 ├── channel_manager.py  # Channel-Rename + Cooldown
+├── trip_tracker.py     # Fahrtenbuch-Erkennung
 ├── logging_setup.py    # Logging
 ├── requirements.txt
 ├── .env.example
@@ -159,8 +160,10 @@ tesla-discord-status/
 | `TESLA_EMAIL` | Ja | Tesla-Account-E-Mail |
 | `TESLA_VIN` | Nein | VIN bei mehreren Fahrzeugen |
 | `TESLA_REFRESH_TOKEN` | Nein | Optionaler Refresh-Token |
-| `UPDATE_INTERVAL_MINUTES` | Nein | Prüfintervall (Standard: 7) |
-| `CHANNEL_EDIT_COOLDOWN_MINUTES` | Nein | Min. Abstand zwischen Renames (Standard: 6) |
+| `TESLA_POLL_INTERVAL_SECONDS` | Nein | Tesla-Abfrageintervall (Standard: 90) |
+| `CHANNEL_EDIT_COOLDOWN_MINUTES` | Nein | Min. Abstand zwischen Channel-Renames (Standard: 6) |
+| `BATTERY_CACHE_MAX_AGE_SECONDS` | Nein | Max. Alter des Akku-Cache bei Sleep (Standard: 86400) |
+| `TRIP_MIN_DISTANCE_KM` | Nein | Mindeststrecke für Fahrtenbuch (Standard: 0.3) |
 | `LOG_LEVEL` | Nein | DEBUG, INFO, WARNING, … |
 | `LOG_FILE` | Nein | Optional: Log-Dateipfad |
 
@@ -171,8 +174,14 @@ tesla-discord-status/
 ### Fahrzeug nicht unnötig wecken
 
 1. Zuerst **Vehicle Summary** abrufen (weckt normalerweise nicht).
-2. Bei `asleep` / `offline`: letzten bekannten Akkustand aus `battery_cache.json` anzeigen.
-3. `vehicle_data` nur bei `online`, wenn Gang/Akkustand in der Summary fehlen.
+2. Bei `asleep` / `offline`: letzten bekannten Akkustand aus `battery_cache.json` (max. 24h alt).
+3. Bei `online`: immer frische `vehicle_data` für Akku, Kilometerstand und Position.
+
+### Fahrtenbuch
+
+- Fahrten werden anhand des Status (🔵 unterwegs) erkannt.
+- Kurze Fahrten zwischen zwei Abfragen werden per Kilometerstand-Delta geschätzt.
+- Polling-Intervall für zuverlässiges Tracking: **60–120 Sekunden** empfohlen.
 
 ### Status-Logik
 
@@ -195,7 +204,9 @@ In `tesla_client.py` existiert ein `FleetApiClient`-Stub. Für MyTeslaMate, Tesl
 | Tesla Login: „Verified Successfully“ aber nichts passiert | URL aus Browser-Adresszeile ins **Terminal** einfügen (siehe oben) |
 | `tesla_cache.json` fehlt | `python tesla_auth.py` ausführen und URL einfügen |
 | Rate-Limit Discord | Cooldown erhöhen (`CHANNEL_EDIT_COOLDOWN_MINUTES=8`) |
-| Akkustand bei Sleep = alt | Erwartetes Verhalten – Auto wird nicht geweckt |
+| Akkustand bei Sleep = alt | Erwartet – Auto wird nicht geweckt; `(Cache)` im Log |
+| Kurze Fahrten fehlen | `TESLA_POLL_INTERVAL_SECONDS=60` setzen |
+| Falscher Akku online | Sollte behoben sein – bei Problemen `LOG_LEVEL=DEBUG` |
 
 ---
 

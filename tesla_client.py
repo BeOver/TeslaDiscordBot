@@ -3,12 +3,8 @@ Tesla-API-Zugriff über TeslaPy (Owner API).
 
 Strategie für minimalen Aufweck-Aufwand:
 1. Zuerst nur Vehicle-Summary abrufen (weckt das Fahrzeug nicht).
-2. Bei asleep/offline: gecachten Akkustand verwenden.
-3. Nur bei online: optional drive_state/charge_state/vehicle_state aus Summary oder vehicle_data.
-
-Die Klasse ist so strukturiert, dass später ein Fleet-API-Backend
-(z. B. MyTeslaMate / Teslemetry) leicht eingehängt werden kann –
-siehe `FleetApiClient`-Stub am Dateiende.
+2. Bei online: gezielt vehicle_data für frische charge/drive/vehicle/climate-Daten.
+3. Bei asleep/offline: niemals vehicle_data – Akkustand nur aus Cache (Sleep-Anzeige).
 """
 
 from __future__ import annotations
@@ -31,17 +27,25 @@ logger = logging.getLogger(__name__)
 MAX_RETRIES = 3
 RETRY_BASE_DELAY_SECONDS = 2.0
 
+# Endpoints für Online-Abfrage – kein voller Wake unnötiger Subsysteme
+LIVE_DATA_ENDPOINTS = "charge_state;drive_state;vehicle_state;climate_state"
+
+# charge_state älter als 5 Minuten gilt als veraltet (Summary-Stale-Daten)
+CHARGE_STALE_SECONDS = 300
+
 
 class TeslaDataError(Exception):
     """Fehler beim Abrufen oder Interpretieren von Tesla-Daten."""
 
 
 class BatteryCache:
-    """Persistiert den zuletzt bekannten Akkustand (für asleep/offline)."""
+    """Persistiert den zuletzt bekannten Akkustand (nur für asleep/offline)."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, max_age_seconds: float = 86400) -> None:
         self._path = path
+        self._max_age_seconds = max_age_seconds
         self._level: int | None = None
+        self._updated_at: float | None = None
         self._load()
 
     def _load(self) -> None:
@@ -50,21 +54,40 @@ class BatteryCache:
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
             level = data.get("battery_level")
+            updated_at = data.get("updated_at")
             if isinstance(level, int) and 0 <= level <= 100:
                 self._level = level
+            if isinstance(updated_at, (int, float)):
+                self._updated_at = float(updated_at)
         except (OSError, json.JSONDecodeError, TypeError) as exc:
             logger.warning("Battery-Cache konnte nicht geladen werden: %s", exc)
 
     def get(self) -> int | None:
+        if self._level is None:
+            return None
+        if self._updated_at is None:
+            return self._level
+        age = time.time() - self._updated_at
+        if age > self._max_age_seconds:
+            logger.warning(
+                "Battery-Cache abgelaufen (%.0fs alt, Limit %.0fs).",
+                age,
+                self._max_age_seconds,
+            )
+            return None
         return self._level
 
     def set(self, level: int) -> None:
         if not 0 <= level <= 100:
             return
         self._level = level
+        self._updated_at = time.time()
         try:
             self._path.write_text(
-                json.dumps({"battery_level": level}, indent=2),
+                json.dumps(
+                    {"battery_level": level, "updated_at": self._updated_at},
+                    indent=2,
+                ),
                 encoding="utf-8",
             )
         except OSError as exc:
@@ -89,10 +112,14 @@ class TeslaPyClient(TeslaClientBase):
         battery_cache_file: Path,
         vin: str | None = None,
         refresh_token: str | None = None,
+        battery_cache_max_age_seconds: float = 86400,
     ) -> None:
         self._email = email
         self._vin = vin
-        self._battery_cache = BatteryCache(battery_cache_file)
+        self._battery_cache = BatteryCache(
+            battery_cache_file,
+            max_age_seconds=battery_cache_max_age_seconds,
+        )
         self._vehicle = None
 
         self._tesla = Tesla(email, cache_file=str(cache_file))
@@ -228,82 +255,109 @@ class TeslaPyClient(TeslaClientBase):
             return inner if isinstance(inner, dict) else data
         raise TeslaDataError("Ungültige Tesla-API-Antwort.")
 
+    @staticmethod
+    def _charge_age_seconds(charge: dict[str, Any]) -> float | None:
+        timestamp_ms = charge.get("timestamp")
+        if timestamp_ms is None:
+            return None
+        try:
+            return time.time() - float(timestamp_ms) / 1000.0
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _is_charge_stale(charge: dict[str, Any]) -> bool:
+        age = TeslaPyClient._charge_age_seconds(charge)
+        if age is None:
+            return True
+        return age > CHARGE_STALE_SECONDS
+
     def _fetch_summary(self, vehicle) -> dict[str, Any]:
         """Leichtgewichtiger Abruf – weckt das Fahrzeug in der Regel nicht."""
         raw = self._retry(vehicle.get_vehicle_summary)
         return self._unwrap_response(raw)
 
-    def _fetch_vehicle_data(self, vehicle) -> dict[str, Any]:
-        """Voller Datenabruf – weckt online/asleep Fahrzeuge. Nur wenn nötig."""
-        raw = self._retry(vehicle.get_vehicle_data)
+    def _fetch_vehicle_data(
+        self,
+        vehicle,
+        *,
+        endpoints: str | None = None,
+    ) -> dict[str, Any]:
+        """Datenabruf – weckt nur bei asleep/offline. Bei online: sicher."""
+        if endpoints:
+            raw = self._retry(
+                lambda: vehicle.get_vehicle_data(endpoints=endpoints)
+            )
+        else:
+            raw = self._retry(vehicle.get_vehicle_data)
         return self._unwrap_response(raw)
 
     def _resolve_battery(
         self,
         summary: dict[str, Any],
         *,
-        allow_vehicle_data: bool,
-        vehicle: dict[str, Any],
-    ) -> int:
+        state: str,
+    ) -> tuple[int, bool]:
+        """
+        Akkustand ermitteln.
+
+        Returns:
+            (battery_level, from_cache)
+        """
         charge = self._extract_nested(summary, "charge_state")
         level = charge.get("battery_level")
+        normalized_state = state.lower()
+        is_asleep = normalized_state in {"asleep", "offline"}
 
-        if isinstance(level, (int, float)):
+        if isinstance(level, (int, float)) and not (
+            not is_asleep and self._is_charge_stale(charge)
+        ):
             battery = int(level)
             self._battery_cache.set(battery)
-            return battery
+            return battery, False
 
-        if allow_vehicle_data:
-            logger.debug("Akkustand fehlt in Summary – vehicle_data wird abgefragt.")
-            data = self._fetch_vehicle_data(vehicle)
-            charge = self._extract_nested(data, "charge_state")
-            level = charge.get("battery_level")
-            if isinstance(level, (int, float)):
-                battery = int(level)
-                self._battery_cache.set(battery)
-                return battery
+        if not is_asleep:
+            raise TeslaDataError(
+                "Kein aktueller Akkustand verfügbar (Fahrzeug online, aber charge_state fehlt/veraltet)."
+            )
 
         cached = self._battery_cache.get()
         if cached is not None:
-            logger.debug("Verwende gecachten Akkustand: %s%%", cached)
-            return cached
+            logger.info(
+                "Fahrzeug %s – letzter bekannter Akkustand aus Cache: %s%%",
+                normalized_state,
+                cached,
+            )
+            return cached, True
 
-        raise TeslaDataError("Kein Akkustand verfügbar und kein Cache vorhanden.")
+        raise TeslaDataError(
+            "Kein Akkustand verfügbar (Fahrzeug offline/asleep, kein Cache)."
+        )
 
     def get_status(self) -> VehicleStatus:
         vehicle = self._get_vehicle()
         summary = self._fetch_summary(vehicle)
 
         state = str(summary.get("state", vehicle.get("state", "offline"))).lower()
+
+        # Online: immer frische Live-Daten holen (kein veralteter Summary-Cache)
+        if state == "online":
+            logger.debug("Fahrzeug online – lade aktuelle Fahrzeugdaten.")
+            live = self._fetch_vehicle_data(vehicle, endpoints=LIVE_DATA_ENDPOINTS)
+            summary = {**summary, **live}
+        else:
+            logger.debug("Fahrzeug %s – kein Wake, Summary + ggf. Battery-Cache.", state)
+
+        battery, battery_from_cache = self._resolve_battery(summary, state=state)
+
         drive = self._extract_nested(summary, "drive_state")
         shift_state = drive.get("shift_state")
         speed_raw = drive.get("speed")
         speed = float(speed_raw) if speed_raw is not None else None
 
-        # Bei online fehlen oft Details → vehicle_data nachladen
-        needs_details = state == "online" and (
-            shift_state is None
-            or "charge_state" not in summary
-            or "vehicle_state" not in summary
-        )
+        latitude = drive.get("latitude")
+        longitude = drive.get("longitude")
 
-        if needs_details:
-            logger.debug("Fahrzeug online – hole vehicle_data für fehlende Felder.")
-            data = self._fetch_vehicle_data(vehicle)
-            drive = self._extract_nested(data, "drive_state")
-            shift_state = drive.get("shift_state", shift_state)
-            speed_raw = drive.get("speed", speed_raw)
-            speed = float(speed_raw) if speed_raw is not None else speed
-            summary = {**summary, **data}
-
-        allow_wake = state == "online"
-        battery = self._resolve_battery(
-            summary,
-            allow_vehicle_data=allow_wake,
-            vehicle=vehicle,
-        )
-
-        # Zusätzliche Felder extrahieren
         charge = self._extract_nested(summary, "charge_state")
         vehicle_state = self._extract_nested(summary, "vehicle_state")
         climate = self._extract_nested(summary, "climate_state")
@@ -311,7 +365,6 @@ class TeslaPyClient(TeslaClientBase):
         charging_state = charge.get("charging_state")
         sentry_mode = bool(vehicle_state.get("sentry_mode", False))
 
-        # Service-Felder
         in_service = bool(summary.get("in_service", False) or vehicle.get("in_service", False))
         service_mode = bool(vehicle_state.get("service_mode", False))
 
@@ -349,6 +402,9 @@ class TeslaPyClient(TeslaClientBase):
             is_climate_on=bool(is_climate_on) if is_climate_on is not None else None,
             odometer_miles=float(odometer) if odometer is not None else None,
             is_user_present=bool(is_user_present) if is_user_present is not None else None,
+            latitude=float(latitude) if latitude is not None else None,
+            longitude=float(longitude) if longitude is not None else None,
+            battery_from_cache=battery_from_cache,
         )
 
 

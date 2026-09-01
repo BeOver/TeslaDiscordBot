@@ -22,8 +22,10 @@ class Config:
     tesla_refresh_token: str | None
     tesla_cache_file: Path
     battery_cache_file: Path
-    update_interval_minutes: float
+    tesla_poll_interval_seconds: float
     channel_edit_cooldown_minutes: float
+    battery_cache_max_age_seconds: float
+    trip_min_distance_km: float
     log_file: Path | None
     log_level: str
 
@@ -50,6 +52,15 @@ class Config:
         log_file_raw = os.getenv("LOG_FILE", "").strip()
         log_file = Path(log_file_raw) if log_file_raw else None
 
+        # Abwärtskompatibel: UPDATE_INTERVAL_MINUTES → Sekunden (wird ignoriert wenn
+        # TESLA_POLL_INTERVAL_SECONDS gesetzt ist)
+        poll_seconds_raw = os.getenv("TESLA_POLL_INTERVAL_SECONDS", "").strip()
+        if poll_seconds_raw:
+            poll_interval = float(poll_seconds_raw)
+        else:
+            legacy_minutes = os.getenv("UPDATE_INTERVAL_MINUTES", "").strip()
+            poll_interval = float(legacy_minutes) * 60 if legacy_minutes else 90.0
+
         return cls(
             discord_token=token,
             channel_id=int(channel_raw),
@@ -58,12 +69,14 @@ class Config:
             tesla_refresh_token=os.getenv("TESLA_REFRESH_TOKEN", "").strip() or None,
             tesla_cache_file=BASE_DIR / "tesla_cache.json",
             battery_cache_file=BASE_DIR / "battery_cache.json",
-            update_interval_minutes=float(
-                os.getenv("UPDATE_INTERVAL_MINUTES", "7")
-            ),
+            tesla_poll_interval_seconds=max(30.0, poll_interval),
             channel_edit_cooldown_minutes=float(
                 os.getenv("CHANNEL_EDIT_COOLDOWN_MINUTES", "6")
             ),
+            battery_cache_max_age_seconds=float(
+                os.getenv("BATTERY_CACHE_MAX_AGE_SECONDS", "86400")
+            ),
+            trip_min_distance_km=float(os.getenv("TRIP_MIN_DISTANCE_KM", "0.3")),
             log_file=log_file,
             log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
         )

@@ -55,6 +55,9 @@ class VehicleStatus:
     is_climate_on: bool | None = None
     odometer_miles: float | None = None
     is_user_present: bool | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    battery_from_cache: bool = False
 
     @property
     def emoji(self) -> str:
@@ -160,6 +163,9 @@ def status_message(status: VehicleStatus) -> str:
         f"{status.emoji} **{state_labels[status.color]}**",
         f"Akkustand: **{status.battery_level}%**",
     ]
+
+    if status.battery_from_cache:
+        lines.append("_Akkustand: letzter bekannter Wert (Fahrzeug schläft)_")
 
     if status.battery_range_km is not None:
         lines.append(f"Reichweite: **{status.battery_range_km} km** (rated)")
