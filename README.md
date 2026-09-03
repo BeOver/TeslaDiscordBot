@@ -119,7 +119,7 @@ python bot.py
 
 Der Bot:
 
-- fragt den Tesla-Status alle `TESLA_POLL_INTERVAL_SECONDS` (Standard: **90 Sekunden**) ab,
+- fragt den Tesla-Status alle `TESLA_POLL_INTERVAL_SECONDS` (Standard: **60 Sekunden**) ab,
 - benennt den Discord-Channel nur bei Änderung um (Cooldown bleibt bei 6 Min.),
 - erkennt Fahrten für das Fahrtenbuch und schätzt kurze Fahrten zwischen zwei Abfragen.
 
@@ -160,7 +160,7 @@ tesla-discord-status/
 | `TESLA_EMAIL` | Ja | Tesla-Account-E-Mail |
 | `TESLA_VIN` | Nein | VIN bei mehreren Fahrzeugen |
 | `TESLA_REFRESH_TOKEN` | Nein | Optionaler Refresh-Token |
-| `TESLA_POLL_INTERVAL_SECONDS` | Nein | Tesla-Abfrageintervall (Standard: 90) |
+| `TESLA_POLL_INTERVAL_SECONDS` | Nein | Tesla-Abfrageintervall (Standard: 60) |
 | `CHANNEL_EDIT_COOLDOWN_MINUTES` | Nein | Min. Abstand zwischen Channel-Renames (Standard: 6) |
 | `BATTERY_CACHE_MAX_AGE_SECONDS` | Nein | Max. Alter des Akku-Cache bei Sleep (Standard: 86400) |
 | `TRIP_MIN_DISTANCE_KM` | Nein | Mindeststrecke für Fahrtenbuch (Standard: 0.3) |

@@ -59,7 +59,7 @@ class Config:
             poll_interval = float(poll_seconds_raw)
         else:
             legacy_minutes = os.getenv("UPDATE_INTERVAL_MINUTES", "").strip()
-            poll_interval = float(legacy_minutes) * 60 if legacy_minutes else 90.0
+            poll_interval = float(legacy_minutes) * 60 if legacy_minutes else 60.0
 
         return cls(
             discord_token=token,

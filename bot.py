@@ -155,7 +155,7 @@ class TeslaDiscordBot(discord.Client):
         except Exception:
             logger.exception("Unerwarteter Fehler im Update-Zyklus")
 
-    @tasks.loop(seconds=90)
+    @tasks.loop(seconds=60)
     async def update_channel_task(self) -> None:
         await self._run_update_cycle()
 
